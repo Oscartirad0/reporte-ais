@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  Monitor, Send, Clock, CheckCircle, AlertCircle, 
-  Menu, X, Trash2, Edit, Home, Settings, Activity 
+import {
+  Monitor, Send, Clock, CheckCircle, AlertCircle,
+  Menu, X, Trash2, Edit, Home, Settings, Activity, LogIn, LogOut, Lock
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN ---
 const API_URL = 'http://localhost:3001/api/reportes';
+const AUTH_URL = 'http://localhost:3001/api/auth';
 
 const CATEGORIAS = {
   Hardware: ['Monitor', 'Teclado', 'Mouse', 'CPU / Procesador', 'Memoria RAM', 'Disco Duro', 'Fuente de Poder', 'Tarjeta Madre', 'Impresora'],
@@ -15,27 +16,78 @@ const CATEGORIAS = {
 
 function App() {
   // --- ESTADOS DE NAVEGACIÓN Y MENÚ ---
-  const [vistaActual, setVistaActual] = useState('inicio'); // inicio | reporte | gestion
+  const [vistaActual, setVistaActual] = useState('inicio'); // inicio | reporte | gestion | login
   const [menuAbierto, setMenuAbierto] = useState(false);
-  
+
   // --- ESTADOS DE DATOS ---
   const [formData, setFormData] = useState({ solicitante: '', categoria: '', componente: '', descripcion: '' });
   const [reportes, setReportes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editandoId, setEditandoId] = useState(null); // ID del reporte que se está editando
 
+  // --- ESTADOS DE AUTENTICACIÓN ---
+  const [user, setUser] = useState(null);
+  const [loginData, setLoginData] = useState({ username: '', password: '' });
+
   // --- EFECTOS ---
   useEffect(() => {
-    fetchReportes();
+    // Verificar sesión al cargar
+    const token = localStorage.getItem('token');
+    const username = localStorage.getItem('username');
+    if (token && username) {
+      setUser({ username, token });
+    }
   }, []);
+
+  useEffect(() => {
+    if (user && vistaActual === 'gestion') {
+      fetchReportes();
+    }
+  }, [user, vistaActual]);
+
+  const getAuthHeader = () => {
+    return user ? { headers: { Authorization: `Bearer ${user.token}` } } : {};
+  };
 
   const fetchReportes = async () => {
     try {
-      const res = await axios.get(API_URL);
+      const res = await axios.get(API_URL, getAuthHeader());
       setReportes(res.data);
     } catch (error) {
       console.error("Error cargando reportes", error);
+      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+        logout(); // Token inválido o expirado
+      }
     }
+  };
+
+  // --- LÓGICA DE LOGIN ---
+  const handleLoginChange = (e) => {
+    setLoginData({ ...loginData, [e.target.name]: e.target.value });
+  };
+
+  const handleLoginSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await axios.post(`${AUTH_URL}/login`, loginData);
+      const { token, username } = res.data;
+      localStorage.setItem('token', token);
+      localStorage.setItem('username', username);
+      setUser({ token, username });
+      setLoginData({ username: '', password: '' });
+      setVistaActual('gestion'); // Redirigir al panel tras login
+    } catch (error) {
+      alert("Credenciales incorrectas o error en el servidor");
+    }
+    setLoading(false);
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    setUser(null);
+    setVistaActual('inicio');
   };
 
   // --- LÓGICA DEL FORMULARIO (CREAR / EDITAR) ---
@@ -49,23 +101,23 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.categoria || !formData.componente) return alert("Complete los campos requeridos");
-    
+
     setLoading(true);
     try {
       if (editandoId) {
-        // MODO EDICIÓN
-        await axios.put(`${API_URL}/${editandoId}`, formData);
+        // MODO EDICIÓN (PROTEGIDO)
+        await axios.put(`${API_URL}/${editandoId}`, formData, getAuthHeader());
         alert("Reporte actualizado correctamente");
         setEditandoId(null);
       } else {
-        // MODO CREACIÓN
+        // MODO CREACIÓN (PÚBLICO)
         await axios.post(API_URL, formData);
-        alert("Reporte enviado exitosamente");
+        alert("Reporte enviado exitosamente. Se ha notificado a los administradores.");
       }
-      
+
       setFormData({ solicitante: '', categoria: '', componente: '', descripcion: '' });
-      fetchReportes();
-      setVistaActual('gestion'); // Redirigir a gestión tras guardar
+      if (user) fetchReportes();
+      if (editandoId) setVistaActual('gestion');
     } catch (error) {
       alert("Error al procesar la solicitud");
       console.error(error);
@@ -75,9 +127,9 @@ function App() {
 
   // --- LÓGICA DE GESTIÓN (ELIMINAR / PREPARAR EDICIÓN) ---
   const eliminarReporte = async (id) => {
-    if(!window.confirm("¿Estás seguro de eliminar este reporte del historial?")) return;
+    if (!window.confirm("¿Estás seguro de eliminar este reporte del historial?")) return;
     try {
-      await axios.delete(`${API_URL}/${id}`);
+      await axios.delete(`${API_URL}/${id}`, getAuthHeader());
       fetchReportes();
     } catch (error) {
       alert("Error al eliminar");
@@ -98,41 +150,43 @@ function App() {
 
   const cambiarEstado = async (id, nuevoEstado) => {
     try {
-      await axios.put(`${API_URL}/${id}`, { estado: nuevoEstado });
+      await axios.put(`${API_URL}/${id}`, { estado: nuevoEstado }, getAuthHeader());
       fetchReportes();
     } catch (error) { console.error(error); }
   };
 
   // --- NAVEGACIÓN ---
   const navegarA = (vista) => {
-    setVistaActual(vista);
+    if (vista === 'gestion' && !user) {
+      setVistaActual('login'); // Redirigir a login si intenta ir a gestión sin auth
+    } else {
+      setVistaActual(vista);
+    }
     setMenuAbierto(false);
     if (vista === 'reporte' && !editandoId) {
-        setFormData({ solicitante: '', categoria: '', componente: '', descripcion: '' });
+      setFormData({ solicitante: '', categoria: '', componente: '', descripcion: '' });
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-100 font-sans text-gray-800">
-      
+
       {/* HEADER AIS */}
       <header className="bg-blue-800 text-white shadow-lg sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 flex justify-between items-center">
-          
+
           {/* Logo y Título */}
           <div className="flex items-center gap-4">
-            {/* Aquí va tu imagen. Asegúrate de que la ruta sea correcta */}
             <div className="bg-white p-1 rounded-full h-12 w-12 flex items-center justify-center overflow-hidden">
-               {/* Si no tienes la imagen aún, usa un icono temporal */}
-               <img src="/img/logo-ais.png" alt="AIS" className="object-cover h-full w-full" onError={(e) => e.target.style.display='none'} />
-               <Activity className="h-8 w-8 text-blue-800 absolute opacity-0" /> 
+              <img src="/img/logo-ais.png" alt="AIS" className="object-cover h-full w-full" onError={(e) => e.target.style.display = 'none'} />
+              <Activity className="h-8 w-8 text-blue-800 absolute opacity-0" />
             </div>
-            
+
             <div className="flex flex-col">
               <h1 className="text-2xl tracking-wider" style={{ fontFamily: '"Orbitron", sans-serif', fontWeight: 700 }}>
                 UNERG <span className="text-blue-300">AIS</span>
               </h1>
-              <span className="text-xs text-blue-200 tracking-widest uppercase">Sistema de Mensajeria y Reportes de Fallas </span>
+              <span className="text-xs text-blue-200 tracking-widest uppercase">Sistema de Mensajeria y Reportes</span>
             </div>
           </div>
 
@@ -147,18 +201,31 @@ function App() {
       <div className={`fixed inset-y-0 right-0 w-64 bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out ${menuAbierto ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="pt-24 px-6 flex flex-col gap-4">
           <p className="text-gray-400 text-sm uppercase font-bold tracking-wider mb-2">Menú Principal</p>
-          
+
           <button onClick={() => navegarA('inicio')} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'inicio' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
             <Home size={20} /> Inicio
           </button>
-          
-          <button onClick={() => { setEditandoId(null); navegarA('reporte'); }} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'nuevo' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
+
+          <button onClick={() => { setEditandoId(null); navegarA('reporte'); }} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'reporte' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
             <Send size={20} /> Nuevo Reporte
           </button>
-          
-          <button onClick={() => navegarA('gestion')} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'gestion' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
-            <Settings size={20} /> Gestión Reportes
-          </button>
+
+          {user ? (
+            <>
+              <button onClick={() => navegarA('gestion')} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'gestion' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
+                <Settings size={20} /> Gestión Reportes
+              </button>
+              <button onClick={logout} className="flex items-center gap-3 p-3 rounded-lg transition-all hover:bg-red-50 text-red-600 mt-4 border-t border-gray-100">
+                <LogOut size={20} /> Cerrar Sesión
+              </button>
+              <div className='mt-2 text-xs text-center text-gray-400'>Logueado como: {user.username}</div>
+            </>
+          ) : (
+            <button onClick={() => navegarA('login')} className={`flex items-center gap-3 p-3 rounded-lg transition-all ${vistaActual === 'login' ? 'bg-blue-100 text-blue-700 font-bold' : 'hover:bg-gray-50'}`}>
+              <LogIn size={20} /> Acceso Admin
+            </button>
+          )}
+
         </div>
       </div>
 
@@ -169,7 +236,7 @@ function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="container mx-auto p-6 relative z-10">
-        
+
         {/* --- VISTA 1: INICIO --- */}
         {vistaActual === 'inicio' && (
           <div className="text-center py-10 animate-fade-in-up">
@@ -177,26 +244,51 @@ function App() {
               Bienvenido al Sistema AIS
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-10">
-              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 hover:-translate-y-1 transition">
+              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 hover:-translate-y-1 transition cursor-pointer" onClick={() => navegarA('reporte')}>
                 <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
                   <Monitor size={24} />
                 </div>
                 <h3 className="text-xl font-bold mb-2">Reportar Fallas</h3>
                 <p className="text-gray-600 mb-4">Notifica problemas de Hardware o Software inmediatamente.</p>
-                <button onClick={() => navegarA('reporte')} className="text-blue-600 font-bold hover:underline">Ir a Reportar →</button>
-              </div>
-              
-              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 hover:-translate-y-1 transition">
-                <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
-                  <Activity size={24} />
-                </div>
-                <h3 className="text-xl font-bold mb-2">Gestión de Reportes</h3>
-                <p className="text-gray-600 mb-4">Revisa si tu equipo ya está siendo atendido o reparado.</p>
-                <button onClick={() => navegarA('gestion')} className="text-blue-600 font-bold hover:underline">Ver Estado →</button>
+                <span className="text-blue-600 font-bold hover:underline">Ir a Reportar →</span>
               </div>
 
-              
+              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-gray-500 hover:-translate-y-1 transition cursor-pointer" onClick={() => navegarA('gestion')}>
+                <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
+                  <Settings size={24} />
+                </div>
+                <h3 className="text-xl font-bold mb-2">Administración</h3>
+                <p className="text-gray-600 mb-4">Gestión y historial de reportes. (Solo Admin)</p>
+                <span className="text-blue-600 font-bold hover:underline">Acceder →</span>
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* --- VISTA LOGIN --- */}
+        {vistaActual === 'login' && (
+          <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden animate-fade-in-up mt-10">
+            <div className="bg-gray-800 p-6 text-center">
+              <Lock className="w-12 h-12 text-blue-400 mx-auto mb-2" />
+              <h2 className="text-2xl font-bold text-white">Acceso Administrativo</h2>
+              <p className="text-gray-300 text-sm">Ingrese sus credenciales para gestionar reportes</p>
+            </div>
+            <form onSubmit={handleLoginSubmit} className="p-8 space-y-6">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Usuario</label>
+                <input type="text" name="username" value={loginData.username} onChange={handleLoginChange}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none" placeholder="admin" required />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Contraseña</label>
+                <input type="password" name="password" value={loginData.password} onChange={handleLoginChange}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 outline-none" placeholder="********" required />
+              </div>
+              <button type="submit" disabled={loading}
+                className="w-full bg-blue-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-800 transition shadow-md">
+                {loading ? 'Verificando...' : 'Iniciar Sesión'}
+              </button>
+            </form>
           </div>
         )}
 
@@ -204,17 +296,17 @@ function App() {
         {vistaActual === 'reporte' && (
           <div className="max-w-2xl mx-auto bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden animate-fade-in-up">
             <div className="bg-blue-700 p-4 flex justify-between items-center">
-               <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                 {editandoId ? <Edit className="h-5 w-5"/> : <Send className="h-5 w-5"/>} 
-                 {editandoId ? 'Modificar Reporte Existente' : 'Nuevo Reporte de Incidencia'}
-               </h2>
-               {editandoId && <button onClick={() => {setEditandoId(null); setFormData({ solicitante: '', categoria: '', componente: '', descripcion: '' });}} className="text-xs text-white bg-red-500 px-2 py-1 rounded">Cancelar Edición</button>}
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                {editandoId ? <Edit className="h-5 w-5" /> : <Send className="h-5 w-5" />}
+                {editandoId ? 'Modificar Reporte Existente' : 'Nuevo Reporte de Incidencia'}
+              </h2>
+              {editandoId && <button onClick={() => { setEditandoId(null); setFormData({ solicitante: '', categoria: '', componente: '', descripcion: '' }); setVistaActual('gestion'); }} className="text-xs text-white bg-red-500 px-2 py-1 rounded">Cancelar</button>}
             </div>
-            
+
             <form onSubmit={handleSubmit} className="p-8 space-y-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Solicitante</label>
-                <input 
+                <input
                   type="text" name="solicitante" value={formData.solicitante} onChange={handleChange}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none transition"
                   placeholder="Ej: Juan Pérez" required
@@ -262,15 +354,15 @@ function App() {
         )}
 
         {/* --- VISTA 3: GESTIÓN DE REPORTES (HISTORIAL) --- */}
-        {vistaActual === 'gestion' && (
+        {vistaActual === 'gestion' && user && (
           <div className="animate-fade-in-up">
             <h2 className="text-2xl font-bold mb-6 text-gray-700 flex items-center gap-2">
-              <Settings className="h-6 w-6 text-blue-700" /> Gestión y Historial
+              <Settings className="h-6 w-6 text-blue-700" /> Panel de Administración
             </h2>
 
             <div className="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
               {reportes.length === 0 ? (
-                <div className="p-10 text-center text-gray-500">No hay reportes registrados.</div>
+                <div className="p-10 text-center text-gray-500">No hay reportes registrados o no se pudieron cargar.</div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
@@ -296,13 +388,13 @@ function App() {
                           <td className="p-4 text-sm text-gray-600 max-w-xs truncate">{rep.descripcion}</td>
                           <td className="p-4">
                             <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold
-                              ${rep.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' : 
+                              ${rep.estado === 'Pendiente' ? 'bg-yellow-100 text-yellow-700' :
                                 rep.estado === 'Solucionado' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                               {rep.estado}
                             </span>
                             {/* Selector rápido de estado */}
-                            <select 
-                              className="ml-2 text-xs border border-gray-300 rounded p-1 outline-none bg-white"
+                            <select
+                              className="ml-2 text-xs border border-gray-300 rounded p-1 outline-none bg-white font-normal"
                               value={rep.estado}
                               onChange={(e) => cambiarEstado(rep.id, e.target.value)}
                             >
