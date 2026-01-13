@@ -66,12 +66,11 @@ const initDB = async () => {
     await sequelize.sync(); // Crea la tabla si no existe
     console.log('Base de datos SQLite sincronizada correctamente.');
     
-    // Crear admin por defecto si no existe (Opcional - para pruebas)
-    // const adminExists = await Admin.findOne({ where: { username: 'admin' } });
-    // if (!adminExists) {
-    //   await Admin.create({ username: 'admin', password: 'admin123' });
-    //   console.log('Usuario admin creado por defecto.');
-    // }
+    const adminExists = await Admin.findOne({ where: { username: 'admin' } });
+    if (!adminExists) {
+      await Admin.create({ username: 'admin', password: 'admin123' });
+      console.log('Usuario admin creado por defecto.');
+    }
 
   } catch (error) {
     console.error('Error al conectar con la BD:', error);
