@@ -22,7 +22,7 @@ initDB();
 const transporter = nodemailer.createTransport({
   service: 'gmail', // O tu servicio de preferencia
   auth: {
-    user: process.env.EMAIL_USER || 'tu_correo@gmail.com',
+    user: process.env.EMAIL_USER || 'belisarioeduriel@gmail.com',
     pass: process.env.EMAIL_PASS || 'tu_contraseña_app'
   }
 });
