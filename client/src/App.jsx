@@ -253,7 +253,7 @@ function App() {
                 <span className="text-blue-600 font-bold hover:underline">Ir a Reportar →</span>
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-gray-500 hover:-translate-y-1 transition cursor-pointer" onClick={() => navegarA('gestion')}>
+              <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 hover:-translate-y-1 transition cursor-pointer" onClick={() => navegarA('gestion')}>
                 <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600">
                   <Settings size={24} />
                 </div>
@@ -271,7 +271,7 @@ function App() {
             <div className="bg-gray-800 p-6 text-center">
               <Lock className="w-12 h-12 text-blue-400 mx-auto mb-2" />
               <h2 className="text-2xl font-bold text-white">Acceso Administrativo</h2>
-              <p className="text-gray-300 text-sm">Ingrese sus credenciales para gestionar reportes</p>
+              <p className="text-blue-300 text-sm">Ingrese sus credenciales para gestionar los reportes</p>
             </div>
             <form onSubmit={handleLoginSubmit} className="p-8 space-y-6">
               <div>
